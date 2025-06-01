@@ -1,0 +1,235 @@
+---
+title: '快速开始'
+description: '五分钟内完成 Codofly Template 的安装与配置'
+---
+
+# 快速开始
+
+本指南将帮助您快速上手 Codofly。
+
+## 环境准备
+
+在开始之前，请确保您的系统满足以下要求：
+
+<CardGroup cols={3}>
+  <Card title="Node.js 18+" icon="node-js">
+    推荐使用 LTS 版本
+  </Card>
+  <Card title="pnpm 8+" icon="box">
+    高效的包管理工具
+  </Card>
+  <Card title="PostgreSQL 14+" icon="database">
+    关系型数据库
+  </Card>
+</CardGroup>
+
+<Steps>
+  <Step title="安装 Node.js">
+    从 [Node.js 官网](https://nodejs.org/) 下载并安装最新的 LTS 版本。
+
+    ```bash
+    # 验证安装
+    node -v
+    # 应显示 v18.x.x 或更高版本
+    ```
+  </Step>
+  <Step title="安装 pnpm">
+    按照 [pnpm 官方文档](https://pnpm.io/installation) 安装。
+
+    ```bash
+    # 使用 npm 安装 pnpm
+    npm install -g pnpm
+    
+    # 验证安装
+    pnpm -v
+    # 应显示 8.x.x 或更高版本
+    ```
+  </Step>
+  <Step title="安装 PostgreSQL">
+    从 [PostgreSQL 官网](https://www.postgresql.org/download/) 下载并安装。
+    
+    <Callout type="tip">
+      也可以使用 Docker 容器或云数据库服务如 Neon、Supabase 或 Vercel Postgres。
+    </Callout>
+  </Step>
+</Steps>
+
+## 获取模板代码
+
+<CodeGroup>
+  ```bash Git Clone
+  git clone https://github.com/codofly/codofly.git
+  cd codofly
+  ```
+
+  ```bash 下载 ZIP
+  # 下载 ZIP 文件
+  curl -L https://github.com/codofly/codofly/archive/refs/heads/main.zip -o codofly.zip
+  
+  # 解压文件
+  unzip codofly.zip
+  
+  # 进入项目目录
+  cd codofly-main
+  ```
+</CodeGroup>
+
+## 安装依赖
+
+```bash
+# 在项目根目录下运行
+pnpm install
+```
+
+<Callout type="warning">
+  请务必使用 pnpm 而不是 npm 或 yarn，以确保与 lockfile 一致，避免依赖问题。
+</Callout>
+
+## 环境变量配置
+
+<Steps>
+  <Step title="复制环境变量模板">
+    ```bash
+    cp .env.example .env.local
+    ```
+  </Step>
+  <Step title="配置关键变量">
+    使用您喜欢的编辑器打开 `.env.local` 文件并配置以下关键变量：
+
+    <AccordionGroup>
+      <Accordion icon="database" title="数据库配置">
+        ```env
+        # PostgreSQL 连接字符串
+        DATABASE_URL=postgresql://username:password@localhost:5432/codofly
+        ```
+        
+        将 `username`、`password` 替换为您的 PostgreSQL 用户名和密码。
+      </Accordion>
+
+      <Accordion icon="lock" title="NextAuth 配置">
+        ```env
+        # NextAuth 密钥和 URL
+        NEXTAUTH_SECRET=your_random_secret_key
+        NEXTAUTH_URL=http://localhost:3000
+        
+        # 第三方登录（可选）
+        GITHUB_ID=your_github_oauth_id
+        GITHUB_SECRET=your_github_oauth_secret
+        GOOGLE_ID=your_google_oauth_id
+        GOOGLE_SECRET=your_google_oauth_secret
+        ```
+        
+        生成随机密钥：
+        ```bash
+        openssl rand -base64 32
+        ```
+      </Accordion>
+
+      <Accordion icon="credit-card" title="Stripe 支付配置">
+        ```env
+        # Stripe 配置
+        STRIPE_SECRET_KEY=sk_test_your_stripe_secret_key
+        STRIPE_WEBHOOK_SECRET=whsec_your_stripe_webhook_secret
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_your_stripe_publishable_key
+        ```
+        
+        从 [Stripe Dashboard](https://dashboard.stripe.com/apikeys) 获取密钥。
+      </Accordion>
+
+      <Accordion icon="robot" title="AI 模型配置">
+        ```env
+        # OpenAI 配置
+        OPENAI_API_KEY=your_openai_api_key
+        
+        # 其他 AI 提供商（可选）
+        ANTHROPIC_API_KEY=your_anthropic_api_key
+        GOOGLE_AI_KEY=your_google_ai_key
+        ```
+      </Accordion>
+
+      <Accordion icon="envelope" title="邮件服务配置">
+        ```env
+        # 邮件服务
+        RESEND_API_KEY=your_resend_api_key
+        EMAIL_FROM=noreply@yourdomain.com
+        ```
+      </Accordion>
+    </AccordionGroup>
+
+    <Callout type="important">
+      环境变量配置是项目正常运行的关键！确保所有必需的变量都已正确配置，特别是数据库连接和认证密钥。
+    </Callout>
+  </Step>
+</Steps>
+
+## 数据库初始化
+
+运行以下命令初始化数据库模式：
+
+```bash
+npx prisma migrate dev
+```
+
+这将创建所有必要的数据库表并设置初始数据。
+
+<Callout type="info">
+  如果您更改了数据库模型（schema.prisma），再次运行此命令可以更新数据库结构。
+</Callout>
+
+## 本地运行
+
+启动开发服务器：
+
+```bash
+pnpm dev
+```
+
+<Callout type="success">
+  如果一切配置正确，服务器将在 http://localhost:3000 启动，并且控制台中不会显示错误。
+</Callout>
+
+## 访问验证
+
+打开浏览器并访问：
+
+```
+http://localhost:3000
+```
+
+您应该能看到 Codofly Template 的主页。尝试以下功能验证安装：
+
+<Steps>
+  <Step title="注册/登录">
+    点击右上角的"登录"按钮，创建一个新账户或使用第三方登录。
+  </Step>
+  <Step title="访问工作区">
+    登录后，您将被重定向到工作区，可以开始使用 AI 聊天功能。
+  </Step>
+  <Step title="测试 AI 功能">
+    创建一个新的聊天，选择一个 AI 模型，并发送一条测试消息。
+    
+    <Callout type="warning">
+      确保您已配置了相应的 AI API 密钥，否则会收到错误响应。
+    </Callout>
+  </Step>
+</Steps>
+
+## 后续步骤
+
+成功安装并运行 Codofly Template 后，您可以：
+
+<CardGroup>
+  <Card title="探索完整功能" icon="compass">
+    了解模板的所有功能，包括团队协作、订阅管理等。
+  </Card>
+  <Card title="自定义模板" icon="paintbrush">
+    根据您的业务需求修改和扩展模板功能。
+  </Card>
+  <Card title="部署上线" icon="rocket">
+    在 Vercel、AWS 或其他云平台上部署您的应用。
+  </Card>
+</CardGroup>
+
+<Callout type="info">
+  查看[开发指南](/development)获取更多关于如何自定义和扩展模板的信息。
+</Callout>

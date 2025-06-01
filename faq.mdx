@@ -1,0 +1,735 @@
+---
+title: 常见问题
+description: "Codofly Template 常见问题及解答"
+---
+
+# 常见问题
+
+这里列出了一些常见问题及其解答。
+
+## 安装问题
+
+<Accordion title="依赖安装失败怎么办？">
+  在安装依赖时可能会遇到各种问题，以下是常见解决方案：
+  
+  1. **清除缓存后重新安装**
+  
+  ```bash
+  # 使用 npm
+  npm cache clean --force
+  npm install
+  
+  # 使用 yarn
+  yarn cache clean
+  yarn install
+  
+  # 使用 pnpm
+  pnpm store prune
+  pnpm install
+  ```
+  
+  2. **检查 Node.js 和包管理器版本**
+  
+  确保您使用的 Node.js 版本与项目兼容（推荐 Node.js 18+）。
+  
+  ```bash
+  node -v
+  npm -v # 或 yarn -v 或 pnpm -v
+  ```
+  
+  3. **使用特定的 registry**
+  
+  如果您在中国大陆，可以尝试使用淘宝镜像：
+  
+  ```bash
+  # 临时使用
+  npm install --registry=https://registry.npmmirror.com
+  
+  # 或永久设置
+  npm config set registry https://registry.npmmirror.com
+  ```
+  
+  4. **检查网络问题**
+  
+  某些依赖可能因为网络问题下载失败，特别是涉及到 GitHub 的依赖。尝试使用代理或 VPN。
+  
+  5. **安装失败的具体依赖**
+  
+  如果只有特定依赖安装失败，可以尝试单独安装：
+  
+  ```bash
+  npm install problematic-package --force
+  ```
+</Accordion>
+
+<Accordion title="Node.js 版本兼容性问题">
+  Codofly Template 基于 Next.js 15 构建，建议使用以下 Node.js 版本：
+  
+  - **推荐版本**: Node.js 18.x 或 20.x
+  - **最低版本**: Node.js 18.17.0
+  - **不支持版本**: Node.js 16.x 及以下版本
+  
+  如果您需要管理多个 Node.js 版本，建议使用 nvm（Node Version Manager）：
+  
+  ```bash
+  # 安装特定 Node.js 版本
+  nvm install 18.17.0
+  
+  # 切换 Node.js 版本
+  nvm use 18.17.0
+  ```
+  
+  如果出现与 Node.js 版本相关的错误，检查 package.json 中的 engines 字段：
+  
+  ```json
+  "engines": {
+    "node": ">=18.17.0"
+  }
+  ```
+  
+  使用不兼容的 Node.js 版本可能导致以下问题：
+  - 构建错误
+  - 运行时错误
+  - 依赖冲突
+  - 性能问题
+</Accordion>
+
+<Accordion title="数据库连接问题">
+  Codofly Template 使用 Prisma ORM 连接 PostgreSQL 数据库，常见连接问题及解决方案：
+  
+  1. **连接字符串格式错误**
+  
+  确保您的 DATABASE_URL 环境变量格式正确：
+  
+  ```
+  DATABASE_URL="postgresql://username:password@hostname:port/database"
+  ```
+  
+  2. **数据库服务器未运行**
+  
+  确认数据库服务器正在运行，并且可以从应用服务器访问：
+  
+  ```bash
+  # 检查数据库连接
+  npx prisma db ping
+  ```
+  
+  3. **防火墙或网络问题**
+  
+  如果数据库在远程服务器上，确保端口已开放（PostgreSQL 默认为 5432）。
+  
+  4. **Prisma 模型与数据库不同步**
+  
+  运行 Prisma 迁移同步数据库结构：
+  
+  ```bash
+  npx prisma migrate dev
+  # 或在生产环境
+  npx prisma migrate deploy
+  ```
+  
+  5. **SSL 要求**
+  
+  如果您的数据库要求 SSL 连接，请在连接字符串中添加相应参数：
+  
+  ```
+  DATABASE_URL="postgresql://username:password@hostname:port/database?sslmode=require"
+  ```
+  
+  6. **使用 Prisma 调试**
+  
+  开启 Prisma 调试日志查看详细连接信息：
+  
+  ```bash
+  DEBUG="prisma:*" npm run dev
+  ```
+</Accordion>
+
+## 配置问题
+
+<Accordion title="环境变量配置错误">
+  环境变量配置问题是最常见的启动错误来源。以下是解决方案：
+  
+  1. **确保创建了正确的环境文件**
+  
+  开发环境应创建 `.env.local` 文件，检查是否从示例文件正确复制：
+  
+  ```bash
+  cp .env.example .env.local
+  ```
+  
+  2. **检查必需的环境变量**
+  
+  确保所有必需的环境变量都已配置，特别是：
+  
+  ```
+  # 数据库
+  DATABASE_URL=
+  
+  # 认证
+  NEXTAUTH_SECRET=
+  NEXTAUTH_URL=
+  
+  # AI 提供商密钥
+  OPENAI_API_KEY=
+  
+  # 支付相关
+  STRIPE_SECRET_KEY=
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
+  STRIPE_WEBHOOK_SECRET=
+  ```
+  
+  3. **检查环境变量格式**
+  
+  确保没有多余的空格、引号或特殊字符：
+  
+  ```
+  # 错误
+  DATABASE_URL = "postgresql://..."  # 等号周围有空格
+  
+  # 正确
+  DATABASE_URL="postgresql://..."
+  ```
+  
+  4. **环境变量加载问题**
+  
+  如果环境变量似乎没有被加载，尝试使用 `dotenv` 显式加载：
+  
+  ```javascript
+  // 在服务器启动脚本中
+  require('dotenv').config({ path: '.env.local' });
+  ```
+  
+  5. **检查不同环境的配置**
+  
+  开发环境使用 `.env.local`，生产环境通常在部署平台（如 Vercel）配置。
+</Accordion>
+
+<Accordion title="Stripe 配置问题">
+  Stripe 支付集成是 Codofly Template 的关键功能，以下是常见配置问题及解决方案：
+  
+  1. **API 密钥不正确**
+  
+  确保使用了正确的 Stripe API 密钥，区分测试模式和生产模式密钥：
+  
+  ```
+  # 测试模式
+  STRIPE_SECRET_KEY=sk_test_...
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
+  
+  # 生产模式
+  STRIPE_SECRET_KEY=sk_live_...
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_...
+  ```
+  
+  2. **Webhook 设置问题**
+  
+  Stripe Webhooks 需要正确配置才能处理支付事件：
+  
+  - 在 Stripe 仪表板创建 webhook
+  - 添加端点 URL（例如 `https://yourdomain.com/api/stripe/webhooks`）
+  - 选择需要监听的事件（至少 `checkout.session.completed`）
+  - 获取 Webhook 密钥并配置环境变量：
+  
+  ```
+  STRIPE_WEBHOOK_SECRET=whsec_...
+  ```
+  
+  3. **本地开发中测试 Webhooks**
+  
+  使用 Stripe CLI 在本地测试 Webhooks：
+  
+  ```bash
+  # 安装 Stripe CLI
+  brew install stripe/stripe-cli/stripe
+  
+  # 登录
+  stripe login
+  
+  # 转发 webhooks 到本地
+  stripe listen --forward-to localhost:3000/api/stripe/webhooks
+  ```
+  
+  4. **产品和价格配置**
+  
+  确保在 Stripe 仪表板中创建了产品和价格，并在代码中正确引用价格 ID：
+  
+  ```javascript
+  const checkoutSession = await stripe.checkout.sessions.create({
+    line_items: [
+      {
+        price: 'price_1234567890', // 从 Stripe 仪表板获取的价格 ID
+        quantity: 1,
+      },
+    ],
+    // ...其他配置
+  });
+  ```
+  
+  5. **货币不匹配问题**
+  
+  确保应用中使用的货币与 Stripe 价格设置匹配。
+</Accordion>
+
+<Accordion title="NextAuth 配置问题">
+  NextAuth.js（Auth.js）是 Codofly Template 的认证系统，以下是常见配置问题：
+  
+  1. **基本配置缺失**
+  
+  确保设置了基本的 NextAuth 环境变量：
+  
+  ```
+  NEXTAUTH_SECRET=your_random_secure_string
+  NEXTAUTH_URL=http://localhost:3000 # 开发环境
+  NEXTAUTH_URL=https://yourdomain.com # 生产环境
+  ```
+  
+  2. **OAuth 提供商配置**
+  
+  配置社交登录提供商的 Client ID 和 Secret：
+  
+  ```
+  # GitHub
+  GITHUB_ID=your_github_client_id
+  GITHUB_SECRET=your_github_client_secret
+  
+  # Google
+  GOOGLE_ID=your_google_client_id
+  GOOGLE_SECRET=your_google_client_secret
+  ```
+  
+  3. **数据库适配器问题**
+  
+  确保 Prisma 适配器配置正确：
+  
+  ```javascript
+  import { PrismaAdapter } from "@auth/prisma-adapter";
+  import { prisma } from "@/lib/prisma";
+
+  export const { handlers, auth, signIn, signOut } = NextAuth({
+    adapter: PrismaAdapter(prisma),
+    // ...其他配置
+  });
+  ```
+  
+  4. **回调 URL 设置**
+  
+  在 OAuth 提供商的开发者控制台中，确保添加了正确的回调 URL：
+  
+  ```
+  http://localhost:3000/api/auth/callback/github
+  http://localhost:3000/api/auth/callback/google
+  https://yourdomain.com/api/auth/callback/github
+  https://yourdomain.com/api/auth/callback/google
+  ```
+  
+  5. **会话配置问题**
+  
+  根据需要配置会话策略（JWT 或数据库）：
+  
+  ```javascript
+  export const { handlers, auth, signIn, signOut } = NextAuth({
+    session: {
+      strategy: "jwt", // 或 "database"
+    },
+    // ...其他配置
+  });
+  ```
+  
+  6. **自定义页面路由**
+  
+  如果使用自定义登录页面，确保正确配置：
+  
+  ```javascript
+  export const { handlers, auth, signIn, signOut } = NextAuth({
+    pages: {
+      signIn: "/auth/login",
+      signOut: "/auth/logout",
+      error: "/auth/error",
+    },
+    // ...其他配置
+  });
+  ```
+</Accordion>
+
+## 开发问题
+
+<Accordion title="如何添加新页面">
+  在 Codofly Template 中添加新页面遵循 Next.js App Router 的规范：
+  
+  1. **创建新的路由目录**
+  
+  在 `app/[locale]` 目录下创建相应的目录结构：
+  
+  ```
+  app/
+    [locale]/
+      (workspace)/  # 分组路由
+        new-feature/  # 新功能路径
+          page.tsx    # 页面组件
+  ```
+  
+  2. **创建页面组件**
+  
+  创建 `page.tsx` 文件，这是路由的主要入口点：
+  
+  ```tsx
+  import { Metadata } from "next";
+  
+  export const metadata: Metadata = {
+    title: "新功能页面",
+    description: "这是一个新功能页面的描述",
+  };
+  
+  export default function NewFeaturePage() {
+    return (
+      <div className="container mx-auto py-8">
+        <h1 className="text-2xl font-bold mb-4">新功能页面</h1>
+        <p>这是新功能页面的内容</p>
+      </div>
+    );
+  }
+  ```
+  
+  3. **添加国际化支持**
+  
+  在 `messages` 目录下的语言文件中添加翻译：
+  
+  ```ts
+  // messages/zh.json
+  {
+    "NewFeature": {
+      "title": "新功能页面",
+      "description": "这是新功能页面的描述"
+    }
+  }
+  
+  // messages/en.json
+  {
+    "NewFeature": {
+      "title": "New Feature Page",
+      "description": "This is a description of the new feature page"
+    }
+  }
+  ```
+  
+  然后在页面中使用翻译：
+  
+  ```tsx
+  import { useTranslations } from "next-intl";
+  
+  export default function NewFeaturePage() {
+    const t = useTranslations("NewFeature");
+    
+    return (
+      <div className="container mx-auto py-8">
+        <h1 className="text-2xl font-bold mb-4">{t("title")}</h1>
+        <p>{t("description")}</p>
+      </div>
+    );
+  }
+  ```
+  
+  4. **添加页面到导航**
+  
+  在导航组件中添加新页面链接：
+  
+  ```tsx
+  import { Link } from "@/navigation";
+  
+  // 在导航组件中
+  <Link href="/new-feature" className="hover:text-primary">
+    {t("navigation.newFeature")}
+  </Link>
+  ```
+  
+  5. **添加访问控制（如需要）**
+  
+  如果页面需要认证，添加适当的权限检查：
+  
+  ```tsx
+  import { redirect } from "next/navigation";
+  import { auth } from "@/auth";
+  
+  export default async function ProtectedPage() {
+    const session = await auth();
+    
+    if (!session) {
+      redirect("/auth/login");
+    }
+    
+    return (
+      // 页面内容
+    );
+  }
+  ```
+</Accordion>
+
+<Accordion title="如何自定义主题">
+  Codofly Template 使用 Tailwind CSS 进行样式设计，您可以通过以下方式自定义主题：
+  
+  1. **修改 Tailwind 配置**
+  
+  编辑 `tailwind.config.ts` 文件自定义颜色、字体等：
+  
+  ```typescript
+  import type { Config } from "tailwindcss";
+  
+  const config: Config = {
+    theme: {
+      extend: {
+        colors: {
+          primary: {
+            DEFAULT: "#3B82F6",
+            50: "#EFF6FF",
+            // ...其他色调
+            900: "#1E3A8A",
+          },
+          // 添加自定义颜色
+          secondary: {
+            DEFAULT: "#10B981",
+            // ...色调
+          },
+          // 自定义品牌颜色
+          brand: "#FF6347",
+        },
+        fontFamily: {
+          sans: ["var(--font-sans)", "system-ui", "sans-serif"],
+          // 添加自定义字体
+          display: ["var(--font-display)", "sans-serif"],
+        },
+        // 自定义其他设计变量
+        borderRadius: {
+          custom: "0.5rem",
+        },
+      },
+    },
+    // ...其他配置
+  };
+  
+  export default config;
+  ```
+  
+  2. **自定义全局样式**
+  
+  编辑 `app/globals.css` 文件添加自定义 CSS 变量和样式：
+  
+  ```css
+  @tailwind base;
+  @tailwind components;
+  @tailwind utilities;
+  
+  @layer base {
+    :root {
+      --background: 0 0% 100%;
+      --foreground: 222.2 84% 4.9%;
+      
+      --primary: 221.2 83.2% 53.3%;
+      --primary-foreground: 210 40% 98%;
+      
+      /* 添加自定义 CSS 变量 */
+      --brand-color: 9 100% 64%;
+      --brand-foreground: 0 0% 100%;
+    }
+    
+    .dark {
+      --background: 222.2 84% 4.9%;
+      --foreground: 210 40% 98%;
+      
+      /* 暗色模式变量 */
+      --brand-color: 9 100% 54%;
+    }
+  }
+  
+  /* 添加自定义工具类 */
+  @layer utilities {
+    .custom-shadow {
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    }
+  }
+  
+  /* 添加自定义组件类 */
+  @layer components {
+    .card-hover {
+      @apply transition-all duration-200 hover:scale-105 hover:shadow-lg;
+    }
+  }
+  ```
+  
+  3. **修改组件主题**
+  
+  Codofly Template 使用 shadcn/ui 组件，您可以通过修改 `components/ui/theme.js` 文件自定义组件样式：
+  
+  ```javascript
+  const theme = {
+    button: {
+      base: "inline-flex items-center justify-center rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+      // 自定义变体
+      variant: {
+        brand: "bg-[hsl(var(--brand-color))] text-white hover:bg-[hsl(var(--brand-color))/90]",
+      },
+      // 自定义尺寸
+      size: {
+        xl: "h-14 px-8 text-lg",
+      },
+    },
+    // 其他组件自定义
+  };
+  ```
+  
+  4. **深色模式切换**
+  
+  Codofly Template 已内置深色模式支持，可以使用主题切换组件：
+  
+  ```tsx
+  import { ThemeToggle } from "@/components/theme-toggle";
+  
+  // 在页面或布局中
+  <ThemeToggle />
+  ```
+  
+  5. **自定义品牌资源**
+  
+  替换以下文件以自定义品牌资源：
+  - `public/logo.svg` - 主要徽标
+  - `public/favicon.ico` - 网站图标
+  - `app/[locale]/opengraph-image.png` - 社交媒体预览图
+</Accordion>
+
+<Accordion title="如何添加新的 AI 模型">
+  Codofly Template 支持多种 AI 模型提供商，添加新的 AI 模型需要几个步骤：
+  
+  1. **更新模型配置**
+  
+  编辑 `lib/models.ts` 文件，添加新的模型定义：
+  
+  ```typescript
+  export const models: LLMModel[] = [
+    // 现有模型...
+    
+    // 添加新模型
+    {
+      id: "new-model-name",
+      name: "新模型名称",
+      description: "新模型的简短描述",
+      maxTokens: 16000, // 模型最大标记数
+      inputPrice: 0.01, // 每千输入标记价格（美元）
+      outputPrice: 0.03, // 每千输出标记价格（美元）
+      provider: { // 提供商信息
+        id: "provider-name", // 例如 "openai", "anthropic" 等
+        name: "提供商名称",
+      },
+      available: true, // 是否可用
+    },
+  ];
+  ```
+  
+  2. **实现模型客户端创建函数**
+  
+  在 `getModelClient` 函数中添加新的提供商支持：
+  
+  ```typescript
+  export function getModelClient(model: LLMModel, config: LLMModelConfig) {
+    const { id: modelNameString, providerId } = model;
+    const {
+      apiKey = process.env.OPENAI_API_KEY,
+      baseURL = process.env.OPENAI_API_BASE_URL,
+    } = config;
+  
+    const providerConfigs = {
+      openai: () => createOpenAI({ apiKey, baseURL })(modelNameString),
+      anthropic: () => createAnthropic({ apiKey, baseURL })(modelNameString),
+      // 添加新的提供商
+      "new-provider": () => createNewProvider({ apiKey, baseURL })(modelNameString),
+    };
+  
+    const createClient = providerConfigs[providerId as keyof typeof providerConfigs];
+  
+    if (!createClient) {
+      return providerConfigs.openai();
+    }
+  
+    return createClient();
+  }
+  
+  // 为新提供商实现创建客户端的函数
+  function createNewProvider({ apiKey, baseURL }: ProviderConfig) {
+    return (modelName: string) => {
+      // 实现与新提供商 API 的集成
+      // 返回兼容的客户端对象
+      return {
+        // 实现兼容 AI SDK 的接口
+      };
+    };
+  }
+  ```
+  
+  3. **添加环境变量**
+  
+  在 `.env.local` 和生产环境中添加新的 API 密钥：
+  
+  ```
+  NEW_PROVIDER_API_KEY=your_api_key_here
+  NEW_PROVIDER_API_BASE_URL=https://api.provider.com
+  ```
+  
+  4. **更新 UI 选择器**
+  
+  确保模型选择器组件显示新的模型：
+  
+  ```tsx
+  // components/model-selector.tsx
+  import { models } from "@/lib/models";
+  
+  export function ModelSelector({ value, onChange }) {
+    return (
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger>
+          <SelectValue placeholder="选择模型" />
+        </SelectTrigger>
+        <SelectContent>
+          {models
+            .filter(model => model.available)
+            .map(model => (
+              <SelectItem key={model.id} value={model.id}>
+                <div className="flex items-center">
+                  <span>{model.name}</span>
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    {model.provider.name}
+                  </span>
+                </div>
+              </SelectItem>
+            ))}
+        </SelectContent>
+      </Select>
+    );
+  }
+  ```
+  
+  5. **实现计费逻辑**
+  
+  确保计费系统支持新的模型：
+  
+  ```typescript
+  // lib/billing.ts
+  export function calculateCost(
+    inputTokens: number,
+    outputTokens: number,
+    model: LLMModel,
+  ): number {
+    // 使用模型定义中的价格
+    const inputPrice = model.inputPrice ?? 0;
+    const outputPrice = model.outputPrice ?? 0;
+  
+    // 计算成本
+    const inputCost = (inputTokens * inputPrice) / 1000;
+    const outputCost = (outputTokens * outputPrice) / 1000;
+  
+    return inputCost + outputCost;
+  }
+  ```
+  
+  6. **测试新模型**
+  
+  在开发环境中测试新模型的请求、响应和计费逻辑，确保一切正常工作。
+</Accordion> 

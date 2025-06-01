@@ -1,0 +1,422 @@
+---
+title: 组件开发
+description: "学习如何在 Codofly Template 中创建和管理 React 组件"
+---
+
+# 组件开发
+
+本文档将指导您如何在 Codofly Template 中创建、管理和复用 React 组件。
+
+## 组件目录结构
+
+### 组件组织方式
+
+```
+components/
+├── ui/                     # 基础 UI 组件 (shadcn/ui)
+│   ├── button.tsx         # 按钮组件
+│   ├── input.tsx          # 输入框组件
+│   └── card.tsx           # 卡片组件
+├── auth/                  # 认证相关组件
+│   ├── login-form.tsx     # 登录表单
+│   └── signup-form.tsx    # 注册表单
+├── dashboard/             # 仪表盘组件
+│   ├── sidebar.tsx        # 侧边栏
+│   └── stats-card.tsx     # 统计卡片
+├── chat/                  # 聊天功能组件
+│   ├── chat-interface.tsx # 聊天界面
+│   └── message-list.tsx   # 消息列表
+└── shared/                # 共享组件
+    ├── navbar.tsx         # 导航栏
+    ├── footer.tsx         # 页脚
+    └── loading.tsx        # 加载指示器
+```
+
+<Callout type="info">
+  组件按功能模块分组，基础 UI 组件放在 `ui/` 目录，业务组件按功能分组。
+</Callout>
+
+## UI 组件 (shadcn/ui)
+
+### 安装新组件
+
+```bash
+npx shadcn-ui@latest add button
+npx shadcn-ui@latest add card
+npx shadcn-ui@latest add input
+```
+
+### 基础使用示例
+
+<CodeGroup>
+
+```typescript Button.tsx
+import { Button } from "@/components/ui/button"
+
+export function ExampleButton() {
+  return (
+    <div className="space-x-2">
+      <Button variant="default">默认按钮</Button>
+      <Button variant="outline">边框按钮</Button>
+      <Button variant="destructive">危险按钮</Button>
+    </div>
+  )
+}
+```
+
+```typescript Card.tsx
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+
+export function ExampleCard() {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>卡片标题</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p>卡片内容</p>
+      </CardContent>
+    </Card>
+  )
+}
+```
+
+</CodeGroup>
+
+## 业务组件开发
+
+### 认证组件示例
+
+<CodeGroup>
+
+```typescript LoginForm.tsx
+"use client"
+
+import { useState } from "react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+
+interface LoginFormProps {
+  onSubmit?: (email: string, password: string) => void
+  className?: string
+}
+
+export function LoginForm({ onSubmit, className }: LoginFormProps) {
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    onSubmit?.(email, password)
+  }
+
+  return (
+    <Card className={className}>
+      <CardHeader>
+        <CardTitle>登录</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <Input
+            type="email"
+            placeholder="邮箱"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <Input
+            type="password"
+            placeholder="密码"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <Button type="submit" className="w-full">
+            登录
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  )
+}
+```
+
+```typescript StatsCard.tsx
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { LucideIcon } from "lucide-react"
+
+interface StatsCardProps {
+  title: string
+  value: string | number
+  icon: LucideIcon
+  trend?: {
+    value: number
+    isPositive: boolean
+  }
+}
+
+export function StatsCard({ title, value, icon: Icon, trend }: StatsCardProps) {
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        <Icon className="h-4 w-4 text-muted-foreground" />
+      </CardHeader>
+      <CardContent>
+        <div className="text-2xl font-bold">{value}</div>
+        {trend && (
+          <p className={`text-xs ${trend.isPositive ? 'text-green-600' : 'text-red-600'}`}>
+            {trend.isPositive ? '+' : ''}{trend.value}% 相比上月
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+```
+
+</CodeGroup>
+
+## TypeScript 类型定义
+
+### 基础组件类型
+
+```typescript title="types/components.ts"
+import { ReactNode } from "react"
+import { LucideIcon } from "lucide-react"
+
+// 基础组件 Props
+export interface BaseComponentProps {
+  className?: string
+  children?: ReactNode
+}
+
+// 表单组件类型
+export interface FormFieldProps {
+  label: string
+  name: string
+  type?: "text" | "email" | "password"
+  placeholder?: string
+  required?: boolean
+  value: string
+  onChange: (value: string) => void
+}
+
+// 导航项类型
+export interface NavigationItem {
+  label: string
+  href: string
+  icon?: LucideIcon
+  children?: NavigationItem[]
+}
+```
+
+### 业务数据类型
+
+```typescript title="types/business.ts"
+// 用户类型
+export interface User {
+  id: string
+  email: string
+  name: string
+  avatar?: string
+  role: "admin" | "user"
+}
+
+// 聊天消息类型
+export interface ChatMessage {
+  id: string
+  content: string
+  role: "user" | "assistant"
+  timestamp: Date
+}
+
+// API 响应类型
+export interface ApiResponse<T = any> {
+  success: boolean
+  data?: T
+  error?: string
+}
+```
+
+## 样式处理
+
+### Tailwind CSS 使用
+
+```typescript title="components/styled-example.tsx"
+import { cn } from "@/lib/utils"
+
+interface StyledCardProps {
+  variant?: "default" | "outlined"
+  className?: string
+  children: React.ReactNode
+}
+
+export function StyledCard({ variant = "default", className, children }: StyledCardProps) {
+  return (
+    <div
+      className={cn(
+        // 基础样式
+        "rounded-lg p-6",
+        // 变体样式
+        variant === "default" && "bg-card border shadow-sm",
+        variant === "outlined" && "border-2 border-border",
+        // 外部样式
+        className
+      )}
+    >
+      {children}
+    </div>
+  )
+}
+```
+
+### 响应式和深色模式
+
+```typescript title="components/responsive-example.tsx"
+export function ResponsiveComponent() {
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="bg-white dark:bg-gray-900 p-4 rounded-lg">
+        <h2 className="text-gray-900 dark:text-white">
+          支持深色模式的内容
+        </h2>
+      </div>
+    </div>
+  )
+}
+```
+
+## 组件复用策略
+
+### 1. 组合组件
+
+```typescript title="components/form/index.tsx"
+// 表单容器
+export function Form({ children, onSubmit }: FormProps) {
+  return <form onSubmit={onSubmit}>{children}</form>
+}
+
+// 表单字段
+export function FormField({ label, children }: FormFieldProps) {
+  return (
+    <div className="space-y-2">
+      <label className="text-sm font-medium">{label}</label>
+      {children}
+    </div>
+  )
+}
+
+// 使用示例
+export function ContactForm() {
+  return (
+    <Form onSubmit={handleSubmit}>
+      <FormField label="姓名">
+        <Input placeholder="请输入姓名" />
+      </FormField>
+      <FormField label="邮箱">
+        <Input type="email" placeholder="请输入邮箱" />
+      </FormField>
+      <Button type="submit">提交</Button>
+    </Form>
+  )
+}
+```
+
+### 2. 自定义 Hook
+
+```typescript title="hooks/use-form.ts"
+import { useState } from "react"
+
+export function useForm<T>(initialValues: T) {
+  const [values, setValues] = useState(initialValues)
+  const [errors, setErrors] = useState<Partial<T>>({})
+
+  const setValue = (name: keyof T, value: any) => {
+    setValues(prev => ({ ...prev, [name]: value }))
+  }
+
+  const reset = () => {
+    setValues(initialValues)
+    setErrors({})
+  }
+
+  return { values, errors, setValue, reset }
+}
+```
+
+### 3. 高阶组件
+
+```typescript title="components/hoc/with-loading.tsx"
+import { ComponentType } from "react"
+
+export function withLoading<T extends object>(
+  Component: ComponentType<T>
+) {
+  return function LoadingComponent(props: T & { loading?: boolean }) {
+    const { loading, ...rest } = props
+
+    if (loading) {
+      return <div>加载中...</div>
+    }
+
+    return <Component {...(rest as T)} />
+  }
+}
+```
+
+## 最佳实践
+
+### 1. 组件命名
+
+- 使用 PascalCase 命名组件
+- 文件名与组件名保持一致
+- 使用描述性的名称
+
+### 2. Props 设计
+
+```typescript
+// ✅ 好的做法
+interface ButtonProps {
+  variant?: "primary" | "secondary"
+  size?: "sm" | "md" | "lg"
+  disabled?: boolean
+  children: React.ReactNode
+}
+
+// ❌ 避免的做法
+interface ButtonProps {
+  type?: string // 太模糊
+  data?: any    // 类型不明确
+}
+```
+
+### 3. 性能优化
+
+```typescript
+import { memo, useMemo } from "react"
+
+// 使用 memo 避免不必要的重渲染
+export const ExpensiveComponent = memo(({ data }: Props) => {
+  const processedData = useMemo(() => {
+    return data.map(item => /* 复杂计算 */)
+  }, [data])
+
+  return <div>{/* 渲染内容 */}</div>
+})
+```
+
+<Callout type="warning">
+  合理使用 memo 和 useMemo，避免过度优化导致代码复杂。
+</Callout>
+
+## 总结
+
+在 Codofly Template 中开发组件时：
+
+- 使用 shadcn/ui 作为基础 UI 组件
+- 按功能模块组织组件目录
+- 使用 TypeScript 确保类型安全
+- 利用 Tailwind CSS 进行样式设计
+- 通过组合和复用提高开发效率
+
+掌握这些概念后，您就能高效地创建和管理组件了。

@@ -1,0 +1,420 @@
+---
+title: 用户认证
+description: "使用 NextAuth.js 实现用户认证和授权"
+---
+
+# 用户认证
+
+Codofly Template 使用 NextAuth.js 5 提供完整的用户认证解决方案。
+
+## NextAuth.js 配置
+
+### 基础配置
+
+```typescript title="lib/auth.ts"
+import NextAuth from 'next-auth'
+import GitHub from 'next-auth/providers/github'
+import Google from 'next-auth/providers/google'
+import Credentials from 'next-auth/providers/credentials'
+import { PrismaAdapter } from '@auth/prisma-adapter'
+import { prisma } from '@/lib/prisma'
+
+export const { handlers, auth, signIn, signOut } = NextAuth({
+  adapter: PrismaAdapter(prisma),
+  providers: [
+    GitHub({
+      clientId: process.env.GITHUB_CLIENT_ID,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET,
+    }),
+    Google({
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    }),
+    Credentials({
+      name: 'credentials',
+      credentials: {
+        email: { label: 'Email', type: 'email' },
+        password: { label: 'Password', type: 'password' }
+      },
+      async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) return null
+        
+        // 验证用户凭据的逻辑
+        const user = await verifyUser(credentials.email, credentials.password)
+        return user || null
+      }
+    })
+  ],
+  session: {
+    strategy: 'jwt'
+  },
+  callbacks: {
+    async jwt({ token, user }) {
+      if (user) {
+        token.role = user.role
+      }
+      return token
+    },
+    async session({ session, token }) {
+      if (token) {
+        session.user.id = token.sub
+        session.user.role = token.role
+      }
+      return session
+    }
+  },
+  pages: {
+    signIn: '/auth/signin',
+    signUp: '/auth/signup'
+  }
+})
+```
+
+### Route Handler
+
+```typescript title="app/api/auth/[...nextauth]/route.ts"
+import { handlers } from '@/lib/auth'
+
+export const { GET, POST } = handlers
+```
+
+## 登录方式配置
+
+### GitHub 登录
+
+```bash
+# 环境变量
+GITHUB_CLIENT_ID=your_github_client_id
+GITHUB_CLIENT_SECRET=your_github_client_secret
+```
+
+在 GitHub Developer Settings 中：
+1. 创建 OAuth App
+2. 设置回调 URL: `http://localhost:3000/api/auth/callback/github`
+
+### Google 登录
+
+```bash
+# 环境变量
+GOOGLE_CLIENT_ID=your_google_client_id
+GOOGLE_CLIENT_SECRET=your_google_client_secret
+```
+
+在 Google Cloud Console 中：
+1. 创建 OAuth 2.0 客户端
+2. 设置回调 URL: `http://localhost:3000/api/auth/callback/google`
+
+### 邮箱密码登录
+
+```typescript title="lib/auth-utils.ts"
+import bcrypt from 'bcryptjs'
+import { prisma } from '@/lib/prisma'
+
+export async function verifyUser(email: string, password: string) {
+  const user = await prisma.user.findUnique({
+    where: { email }
+  })
+
+  if (!user || !user.password) return null
+
+  const isValid = await bcrypt.compare(password, user.password)
+  if (!isValid) return null
+
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role
+  }
+}
+
+export async function createUser(email: string, password: string, name: string) {
+  const hashedPassword = await bcrypt.hash(password, 12)
+  
+  return await prisma.user.create({
+    data: {
+      email,
+      password: hashedPassword,
+      name
+    }
+  })
+}
+```
+
+## 会话管理
+
+### 获取会话信息
+
+```typescript title="components/user-profile.tsx"
+import { useSession } from 'next-auth/react'
+
+export function UserProfile() {
+  const { data: session, status } = useSession()
+
+  if (status === 'loading') return <div>加载中...</div>
+  if (status === 'unauthenticated') return <div>未登录</div>
+
+  return (
+    <div>
+      <p>欢迎，{session?.user?.name}</p>
+      <p>邮箱：{session?.user?.email}</p>
+    </div>
+  )
+}
+```
+
+### 服务端获取会话
+
+```typescript title="app/dashboard/page.tsx"
+import { auth } from '@/lib/auth'
+import { redirect } from 'next/navigation'
+
+export default async function DashboardPage() {
+  const session = await auth()
+  
+  if (!session) {
+    redirect('/auth/signin')
+  }
+
+  return (
+    <div>
+      <h1>欢迎，{session.user?.name}</h1>
+    </div>
+  )
+}
+```
+
+## 权限控制
+
+### 页面级权限保护
+
+```typescript title="components/auth/protected-page.tsx"
+import { auth } from '@/lib/auth'
+import { redirect } from 'next/navigation'
+
+export async function ProtectedPage({ 
+  children,
+  requiredRole = 'USER'
+}: {
+  children: React.ReactNode
+  requiredRole?: 'USER' | 'ADMIN'
+}) {
+  const session = await auth()
+  
+  if (!session) {
+    redirect('/auth/signin')
+  }
+
+  if (requiredRole === 'ADMIN' && session.user?.role !== 'ADMIN') {
+    redirect('/unauthorized')
+  }
+
+  return <>{children}</>
+}
+```
+
+### API 路由保护
+
+```typescript title="lib/auth-middleware.ts"
+import { auth } from '@/lib/auth'
+import { NextRequest, NextResponse } from 'next/server'
+
+export async function withAuth(handler: Function) {
+  return async (request: NextRequest, context: any) => {
+    const session = await auth()
+    
+    if (!session) {
+      return NextResponse.json(
+        { error: '未授权访问' },
+        { status: 401 }
+      )
+    }
+
+    // 将用户信息添加到请求上下文
+    context.user = session.user
+    return handler(request, context)
+  }
+}
+```
+
+### 组件级权限
+
+```typescript title="components/auth/role-guard.tsx"
+'use client'
+
+import { useSession } from 'next-auth/react'
+
+interface RoleGuardProps {
+  allowedRoles: string[]
+  children: React.ReactNode
+  fallback?: React.ReactNode
+}
+
+export function RoleGuard({ allowedRoles, children, fallback }: RoleGuardProps) {
+  const { data: session } = useSession()
+  
+  if (!session?.user?.role || !allowedRoles.includes(session.user.role)) {
+    return fallback || <div>权限不足</div>
+  }
+
+  return <>{children}</>
+}
+```
+
+## 用户信息管理
+
+### 更新用户信息
+
+```typescript title="app/api/user/profile/route.ts"
+import { auth } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
+
+export async function PUT(request: Request) {
+  const session = await auth()
+  if (!session) {
+    return NextResponse.json({ error: '未授权' }, { status: 401 })
+  }
+
+  const { name, avatar } = await request.json()
+  
+  const user = await prisma.user.update({
+    where: { id: session.user.id },
+    data: { name, avatar }
+  })
+
+  return NextResponse.json({ user })
+}
+```
+
+### 客户端更新
+
+```typescript title="components/profile-form.tsx"
+'use client'
+
+import { useState } from 'react'
+import { useSession } from 'next-auth/react'
+
+export function ProfileForm() {
+  const { data: session, update } = useSession()
+  const [name, setName] = useState(session?.user?.name || '')
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    const response = await fetch('/api/user/profile', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    })
+
+    if (response.ok) {
+      // 更新客户端会话
+      await update({ name })
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="姓名"
+      />
+      <button type="submit">保存</button>
+    </form>
+  )
+}
+```
+
+## 登出功能
+
+### 客户端登出
+
+```typescript title="components/logout-button.tsx"
+'use client'
+
+import { signOut } from 'next-auth/react'
+
+export function LogoutButton() {
+  return (
+    <button 
+      onClick={() => signOut({ callbackUrl: '/' })}
+      className="text-red-600 hover:text-red-800"
+    >
+      登出
+    </button>
+  )
+}
+```
+
+### 服务端登出
+
+```typescript title="app/api/auth/signout/route.ts"
+import { signOut } from '@/lib/auth'
+
+export async function POST() {
+  await signOut({ redirectTo: '/' })
+}
+```
+
+## 中间件配置
+
+```typescript title="middleware.ts"
+import { auth } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+
+export default auth((req) => {
+  const { pathname } = req.nextUrl
+  
+  // 保护的路由
+  if (pathname.startsWith('/dashboard')) {
+    if (!req.auth) {
+      return NextResponse.redirect(new URL('/auth/signin', req.url))
+    }
+  }
+
+  // 管理员路由
+  if (pathname.startsWith('/admin')) {
+    if (!req.auth || req.auth.user?.role !== 'ADMIN') {
+      return NextResponse.redirect(new URL('/unauthorized', req.url))
+    }
+  }
+
+  return NextResponse.next()
+})
+
+export const config = {
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)']
+}
+```
+
+## 会话提供者
+
+```typescript title="components/providers/session-provider.tsx"
+'use client'
+
+import { SessionProvider } from 'next-auth/react'
+
+export function Providers({ children }: { children: React.ReactNode }) {
+  return (
+    <SessionProvider>
+      {children}
+    </SessionProvider>
+  )
+}
+```
+
+<Callout type="info">
+  确保在根布局中包装 SessionProvider 以在整个应用中使用会话功能。
+</Callout>
+
+## 最佳实践
+
+1. **安全的密钥管理** - 使用强随机字符串作为 NEXTAUTH_SECRET
+2. **会话过期** - 合理设置会话过期时间
+3. **权限细分** - 根据业务需求设计权限系统
+4. **错误处理** - 优雅处理认证失败情况
+
+<Note>
+  查看 [NextAuth.js 文档](https://next-auth.js.org) 了解更多配置选项。
+</Note>

@@ -1,0 +1,508 @@
+---
+title: AI 集成
+description: "集成多种 AI 模型提供智能对话功能"
+---
+
+# AI 集成
+
+Codofly Template 支持多种 AI 模型，包括 OpenAI、Anthropic 和 Google，提供灵活的 AI 对话功能。
+
+## AI 模型配置
+
+### 环境变量
+
+```bash
+# OpenAI
+OPENAI_API_KEY=sk-...
+OPENAI_API_BASE_URL=https://api.openai.com/v1
+
+# Anthropic
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Google
+GOOGLE_API_KEY=AIza...
+```
+
+### 模型配置
+
+```typescript title="lib/ai/models.ts"
+export interface LLMModel {
+  id: string
+  name: string
+  providerId: 'openai' | 'anthropic' | 'google'
+  maxTokens: number
+  costPerToken: number
+}
+
+export const AVAILABLE_MODELS: LLMModel[] = [
+  {
+    id: 'gpt-4o',
+    name: 'GPT-4o',
+    providerId: 'openai',
+    maxTokens: 128000,
+    costPerToken: 0.00001
+  },
+  {
+    id: 'claude-3-5-sonnet-20241022',
+    name: 'Claude 3.5 Sonnet',
+    providerId: 'anthropic',
+    maxTokens: 200000,
+    costPerToken: 0.000015
+  },
+  {
+    id: 'gemini-2.0-flash-exp',
+    name: 'Gemini 2.0 Flash',
+    providerId: 'google',
+    maxTokens: 100000,
+    costPerToken: 0.000008
+  }
+]
+```
+
+## 文本生成
+
+### AI 客户端配置
+
+```typescript title="lib/ai/client.ts"
+import { openai } from '@ai-sdk/openai'
+import { anthropic } from '@ai-sdk/anthropic'
+import { google } from '@ai-sdk/google'
+import { generateText, streamText } from 'ai'
+
+export function getModelClient(model: LLMModel) {
+  const config = {
+    apiKey: getApiKey(model.providerId),
+    baseURL: getBaseURL(model.providerId)
+  }
+
+  switch (model.providerId) {
+    case 'openai':
+      return openai(model.id, config)
+    case 'anthropic':
+      return anthropic(model.id, config)
+    case 'google':
+      return google(model.id, config)
+    default:
+      throw new Error(`不支持的模型提供商: ${model.providerId}`)
+  }
+}
+
+function getApiKey(providerId: string): string {
+  switch (providerId) {
+    case 'openai':
+      return process.env.OPENAI_API_KEY!
+    case 'anthropic':
+      return process.env.ANTHROPIC_API_KEY!
+    case 'google':
+      return process.env.GOOGLE_API_KEY!
+    default:
+      throw new Error(`未找到 ${providerId} 的 API 密钥`)
+  }
+}
+```
+
+### 基础文本生成
+
+```typescript title="app/api/ai/generate/route.ts"
+import { generateText } from 'ai'
+import { getModelClient } from '@/lib/ai/client'
+import { auth } from '@/lib/auth'
+import { consumeCredits } from '@/lib/credits'
+
+export async function POST(request: Request) {
+  const session = await auth()
+  if (!session) {
+    return NextResponse.json({ error: '未授权' }, { status: 401 })
+  }
+
+  const { messages, modelId } = await request.json()
+  
+  try {
+    const model = AVAILABLE_MODELS.find(m => m.id === modelId)
+    if (!model) {
+      return NextResponse.json({ error: '不支持的模型' }, { status: 400 })
+    }
+
+    const client = getModelClient(model)
+    
+    const result = await generateText({
+      model: client,
+      messages,
+      maxTokens: 1000,
+    })
+
+    // 计算和扣除积分
+    const cost = calculateCost(result.usage, model)
+    await consumeCredits(session.user.id, cost)
+
+    return NextResponse.json({
+      text: result.text,
+      usage: result.usage,
+      cost
+    })
+  } catch (error) {
+    console.error('AI 生成失败:', error)
+    return NextResponse.json({ error: 'AI 服务暂时不可用' }, { status: 500 })
+  }
+}
+
+function calculateCost(usage: any, model: LLMModel): number {
+  const totalTokens = usage.promptTokens + usage.completionTokens
+  return Math.ceil(totalTokens * model.costPerToken * 1000) // 转换为积分
+}
+```
+
+## 流式响应
+
+### 流式文本生成
+
+```typescript title="app/api/ai/stream/route.ts"
+import { streamText } from 'ai'
+import { getModelClient } from '@/lib/ai/client'
+
+export async function POST(request: Request) {
+  const session = await auth()
+  if (!session) {
+    return NextResponse.json({ error: '未授权' }, { status: 401 })
+  }
+
+  const { messages, modelId } = await request.json()
+  
+  const model = AVAILABLE_MODELS.find(m => m.id === modelId)
+  if (!model) {
+    return NextResponse.json({ error: '不支持的模型' }, { status: 400 })
+  }
+
+  const client = getModelClient(model)
+  
+  const result = await streamText({
+    model: client,
+    messages,
+    maxTokens: 1000,
+    onFinish: async (result) => {
+      // 流式完成后扣除积分
+      const cost = calculateCost(result.usage, model)
+      await consumeCredits(session.user.id, cost)
+      
+      // 保存对话记录
+      await saveConversation(session.user.id, messages, result.text)
+    }
+  })
+
+  return result.toAIStreamResponse()
+}
+```
+
+### 客户端流式组件
+
+```typescript title="components/ai/streaming-chat.tsx"
+'use client'
+
+import { useState } from 'react'
+import { useChat } from 'ai/react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+
+export function StreamingChat() {
+  const [selectedModel, setSelectedModel] = useState('gpt-4o')
+  
+  const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat({
+    api: '/api/ai/stream',
+    body: {
+      modelId: selectedModel
+    }
+  })
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* 模型选择 */}
+      <div className="p-4 border-b">
+        <select 
+          value={selectedModel} 
+          onChange={(e) => setSelectedModel(e.target.value)}
+          className="border rounded px-3 py-1"
+        >
+          {AVAILABLE_MODELS.map(model => (
+            <option key={model.id} value={model.id}>
+              {model.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* 消息列表 */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {messages.map(message => (
+          <div 
+            key={message.id}
+            className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+          >
+            <div 
+              className={`max-w-[80%] p-3 rounded-lg ${
+                message.role === 'user' 
+                  ? 'bg-blue-500 text-white' 
+                  : 'bg-gray-100'
+              }`}
+            >
+              {message.content}
+            </div>
+          </div>
+        ))}
+        
+        {isLoading && (
+          <div className="flex justify-start">
+            <div className="bg-gray-100 p-3 rounded-lg">
+              <div className="flex space-x-1">
+                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
+                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 输入框 */}
+      <form onSubmit={handleSubmit} className="p-4 border-t">
+        <div className="flex space-x-2">
+          <Input
+            value={input}
+            onChange={handleInputChange}
+            placeholder="输入消息..."
+            disabled={isLoading}
+          />
+          <Button type="submit" disabled={isLoading}>
+            发送
+          </Button>
+        </div>
+      </form>
+    </div>
+  )
+}
+```
+
+## 成本控制
+
+### 积分计算
+
+```typescript title="lib/ai/pricing.ts"
+export function calculateTokenCost(
+  usage: { promptTokens: number; completionTokens: number },
+  model: LLMModel
+): number {
+  const totalTokens = usage.promptTokens + usage.completionTokens
+  return Math.ceil(totalTokens * model.costPerToken * 1000)
+}
+
+export function estimateMessageCost(message: string, model: LLMModel): number {
+  // 简单估算：4 个字符 ≈ 1 个 token
+  const estimatedTokens = Math.ceil(message.length / 4)
+  return Math.ceil(estimatedTokens * model.costPerToken * 1000)
+}
+```
+
+### 用量限制
+
+```typescript title="lib/ai/limits.ts"
+export async function checkUsageLimit(userId: string, estimatedCost: number) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { credits: true, plan: true }
+  })
+
+  if (!user) {
+    throw new Error('用户不存在')
+  }
+
+  if (user.credits < estimatedCost) {
+    throw new Error('积分不足，请充值后再试')
+  }
+
+  // 检查每日使用限制
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  
+  const todayUsage = await prisma.creditTransaction.aggregate({
+    where: {
+      userId,
+      type: 'CONSUMPTION',
+      createdAt: { gte: today }
+    },
+    _sum: { amount: true }
+  })
+
+  const dailyLimit = getDailyLimit(user.plan)
+  const usedToday = Math.abs(todayUsage._sum.amount || 0)
+
+  if (usedToday + estimatedCost > dailyLimit) {
+    throw new Error('今日用量已达上限')
+  }
+
+  return true
+}
+
+function getDailyLimit(plan: string): number {
+  switch (plan) {
+    case 'FREE': return 100
+    case 'BASIC': return 1000
+    case 'PRO': return 10000
+    default: return 100
+  }
+}
+```
+
+## 多模型支持
+
+### 模型切换
+
+```typescript title="components/ai/model-selector.tsx"
+'use client'
+
+import { useState } from 'react'
+import { AVAILABLE_MODELS } from '@/lib/ai/models'
+
+interface ModelSelectorProps {
+  selectedModel: string
+  onModelChange: (modelId: string) => void
+}
+
+export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorProps) {
+  return (
+    <div className="space-y-2">
+      <label className="text-sm font-medium">选择 AI 模型</label>
+      <div className="grid gap-2">
+        {AVAILABLE_MODELS.map(model => (
+          <div
+            key={model.id}
+            className={`p-3 border rounded-lg cursor-pointer transition-colors ${
+              selectedModel === model.id 
+                ? 'border-blue-500 bg-blue-50' 
+                : 'border-gray-200 hover:border-gray-300'
+            }`}
+            onClick={() => onModelChange(model.id)}
+          >
+            <div className="flex justify-between items-center">
+              <div>
+                <div className="font-medium">{model.name}</div>
+                <div className="text-sm text-gray-500">
+                  {model.providerId} • {model.maxTokens.toLocaleString()} tokens
+                </div>
+              </div>
+              <div className="text-sm text-gray-600">
+                {model.costPerToken * 1000}积分/1K tokens
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+```
+
+## 错误处理
+
+### AI 服务错误处理
+
+```typescript title="lib/ai/error-handler.ts"
+export class AIError extends Error {
+  constructor(
+    message: string,
+    public code: string,
+    public status: number = 500
+  ) {
+    super(message)
+    this.name = 'AIError'
+  }
+}
+
+export function handleAIError(error: any): AIError {
+  if (error.status === 401) {
+    return new AIError('API 密钥无效', 'INVALID_API_KEY', 401)
+  }
+  
+  if (error.status === 429) {
+    return new AIError('请求频率超限，请稍后再试', 'RATE_LIMIT', 429)
+  }
+  
+  if (error.status === 500) {
+    return new AIError('AI 服务暂时不可用', 'SERVICE_UNAVAILABLE', 500)
+  }
+
+  return new AIError('AI 请求失败', 'UNKNOWN_ERROR', 500)
+}
+```
+
+### 错误重试机制
+
+```typescript title="lib/ai/retry.ts"
+export async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 3,
+  delay: number = 1000
+): Promise<T> {
+  let lastError: Error
+
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn()
+    } catch (error) {
+      lastError = error as Error
+      
+      if (i === maxRetries - 1) break
+      
+      // 指数退避
+      await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i)))
+    }
+  }
+
+  throw lastError!
+}
+```
+
+## 对话历史保存
+
+```typescript title="lib/ai/conversation.ts"
+export async function saveConversation(
+  userId: string,
+  messages: any[],
+  response: string
+) {
+  // 保存对话到数据库
+  await prisma.chat.create({
+    data: {
+      userId,
+      title: messages[0]?.content?.slice(0, 50) || '新对话',
+      messages: {
+        create: [
+          ...messages.map(msg => ({
+            content: msg.content,
+            role: msg.role.toUpperCase(),
+            userId
+          })),
+          {
+            content: response,
+            role: 'ASSISTANT',
+            userId
+          }
+        ]
+      }
+    }
+  })
+}
+```
+
+<Callout type="info">
+  建议为不同用途配置不同的 AI 模型，如客服使用 GPT-4，创作使用 Claude。
+</Callout>
+
+## 最佳实践
+
+1. **成本控制** - 设置用量限制和积分系统
+2. **错误处理** - 优雅处理 API 失败和超时
+3. **缓存策略** - 缓存常见问题的回答
+4. **监控告警** - 监控 API 使用量和错误率
+
+<Note>
+  查看各 AI 提供商的官方文档了解更多模型参数和限制。
+</Note>

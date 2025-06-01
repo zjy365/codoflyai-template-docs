@@ -1,0 +1,496 @@
+---
+title: 支付集成
+description: "使用 Stripe 实现订阅和支付功能"
+---
+
+# 支付集成
+
+Codofly Template 集成 Stripe 支付系统，支持订阅管理、一次性付款和积分充值。
+
+## Stripe 配置
+
+### 环境变量
+
+```bash
+# Stripe 密钥
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_PUBLISHABLE_KEY=pk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+
+# 产品和价格 ID
+STRIPE_PRICE_ID_BASIC=price_...
+STRIPE_PRICE_ID_PRO=price_...
+```
+
+### 初始化 Stripe
+
+```typescript title="lib/stripe.ts"
+import Stripe from 'stripe'
+
+export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2024-06-20',
+  typescript: true,
+})
+
+// 客户端 Stripe
+export const stripePromise = loadStripe(
+  process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!
+)
+```
+
+## 订阅管理
+
+### 创建订阅
+
+```typescript title="app/api/stripe/create-subscription/route.ts"
+import { auth } from '@/lib/auth'
+import { stripe } from '@/lib/stripe'
+import { prisma } from '@/lib/prisma'
+
+export async function POST(request: Request) {
+  const session = await auth()
+  if (!session) {
+    return NextResponse.json({ error: '未授权' }, { status: 401 })
+  }
+
+  const { priceId } = await request.json()
+
+  try {
+    // 创建或获取 Stripe 客户
+    let customer = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { stripeCustomerId: true }
+    })
+
+    if (!customer?.stripeCustomerId) {
+      const stripeCustomer = await stripe.customers.create({
+        email: session.user.email!,
+        name: session.user.name!,
+      })
+
+      await prisma.user.update({
+        where: { id: session.user.id },
+        data: { stripeCustomerId: stripeCustomer.id }
+      })
+
+      customer = { stripeCustomerId: stripeCustomer.id }
+    }
+
+    // 创建订阅
+    const subscription = await stripe.subscriptions.create({
+      customer: customer.stripeCustomerId!,
+      items: [{ price: priceId }],
+      payment_behavior: 'default_incomplete',
+      payment_settings: { save_default_payment_method: 'on_subscription' },
+      expand: ['latest_invoice.payment_intent'],
+    })
+
+    return NextResponse.json({
+      subscriptionId: subscription.id,
+      clientSecret: subscription.latest_invoice?.payment_intent?.client_secret,
+    })
+  } catch (error) {
+    return NextResponse.json({ error: '创建订阅失败' }, { status: 500 })
+  }
+}
+```
+
+### 订阅组件
+
+```typescript title="components/subscription/subscription-plans.tsx"
+'use client'
+
+import { useState } from 'react'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+
+const plans = [
+  {
+    name: 'Basic',
+    price: '$9.99',
+    priceId: 'price_basic',
+    features: ['100 AI 对话', '基础功能', '邮件支持']
+  },
+  {
+    name: 'Pro',
+    price: '$29.99',
+    priceId: 'price_pro',
+    features: ['无限 AI 对话', '高级功能', '优先支持']
+  }
+]
+
+export function SubscriptionPlans() {
+  const [loading, setLoading] = useState<string | null>(null)
+
+  const handleSubscribe = async (priceId: string) => {
+    setLoading(priceId)
+    
+    try {
+      const response = await fetch('/api/stripe/create-subscription', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priceId })
+      })
+
+      const { clientSecret } = await response.json()
+      
+      // 重定向到 Stripe Checkout 或处理支付
+      if (clientSecret) {
+        // 处理支付确认
+      }
+    } catch (error) {
+      console.error('订阅失败:', error)
+    } finally {
+      setLoading(null)
+    }
+  }
+
+  return (
+    <div className="grid md:grid-cols-2 gap-6">
+      {plans.map((plan) => (
+        <Card key={plan.name}>
+          <CardHeader>
+            <CardTitle>{plan.name}</CardTitle>
+            <div className="text-2xl font-bold">{plan.price}/月</div>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-2 mb-4">
+              {plan.features.map((feature) => (
+                <li key={feature} className="flex items-center">
+                  ✓ {feature}
+                </li>
+              ))}
+            </ul>
+            <Button 
+              onClick={() => handleSubscribe(plan.priceId)}
+              disabled={loading === plan.priceId}
+              className="w-full"
+            >
+              {loading === plan.priceId ? '处理中...' : '选择计划'}
+            </Button>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  )
+}
+```
+
+## 一次性付款
+
+### 创建支付意图
+
+```typescript title="app/api/stripe/create-payment-intent/route.ts"
+export async function POST(request: Request) {
+  const { amount, currency = 'usd' } = await request.json()
+
+  try {
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: amount * 100, // 转换为分
+      currency,
+      automatic_payment_methods: { enabled: true },
+    })
+
+    return NextResponse.json({
+      clientSecret: paymentIntent.client_secret,
+    })
+  } catch (error) {
+    return NextResponse.json({ error: '创建支付失败' }, { status: 500 })
+  }
+}
+```
+
+### 支付表单
+
+```typescript title="components/payment/payment-form.tsx"
+'use client'
+
+import { useState } from 'react'
+import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
+import { stripePromise } from '@/lib/stripe'
+
+function CheckoutForm({ clientSecret }: { clientSecret: string }) {
+  const stripe = useStripe()
+  const elements = useElements()
+  const [isLoading, setIsLoading] = useState(false)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!stripe || !elements) return
+
+    setIsLoading(true)
+
+    const { error } = await stripe.confirmPayment({
+      elements,
+      confirmParams: {
+        return_url: `${window.location.origin}/payment/success`,
+      },
+    })
+
+    if (error) {
+      console.error('支付失败:', error)
+    }
+
+    setIsLoading(false)
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <PaymentElement />
+      <button disabled={!stripe || isLoading}>
+        {isLoading ? '处理中...' : '支付'}
+      </button>
+    </form>
+  )
+}
+
+export function PaymentForm({ clientSecret }: { clientSecret: string }) {
+  return (
+    <Elements stripe={stripePromise} options={{ clientSecret }}>
+      <CheckoutForm clientSecret={clientSecret} />
+    </Elements>
+  )
+}
+```
+
+## 积分系统
+
+### 积分充值
+
+```typescript title="app/api/credits/purchase/route.ts"
+export async function POST(request: Request) {
+  const session = await auth()
+  if (!session) {
+    return NextResponse.json({ error: '未授权' }, { status: 401 })
+  }
+
+  const { amount, credits } = await request.json()
+
+  try {
+    // 创建支付意图
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: amount * 100,
+      currency: 'usd',
+      metadata: {
+        userId: session.user.id,
+        credits: credits.toString(),
+        type: 'credit_purchase'
+      }
+    })
+
+    return NextResponse.json({
+      clientSecret: paymentIntent.client_secret,
+    })
+  } catch (error) {
+    return NextResponse.json({ error: '创建支付失败' }, { status: 500 })
+  }
+}
+```
+
+### 积分消费
+
+```typescript title="lib/credits.ts"
+import { prisma } from '@/lib/prisma'
+
+export async function consumeCredits(userId: string, amount: number) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { credits: true }
+  })
+
+  if (!user || user.credits < amount) {
+    throw new Error('积分不足')
+  }
+
+  // 扣除积分
+  await prisma.user.update({
+    where: { id: userId },
+    data: { credits: { decrement: amount } }
+  })
+
+  // 记录消费记录
+  await prisma.creditTransaction.create({
+    data: {
+      userId,
+      amount: -amount,
+      type: 'CONSUMPTION',
+      description: 'AI 对话消费'
+    }
+  })
+}
+
+export async function addCredits(userId: string, amount: number) {
+  await prisma.user.update({
+    where: { id: userId },
+    data: { credits: { increment: amount } }
+  })
+
+  await prisma.creditTransaction.create({
+    data: {
+      userId,
+      amount,
+      type: 'PURCHASE',
+      description: '积分充值'
+    }
+  })
+}
+```
+
+## Webhook 处理
+
+### Stripe Webhook
+
+```typescript title="app/api/webhooks/stripe/route.ts"
+import { headers } from 'next/headers'
+import { stripe } from '@/lib/stripe'
+
+export async function POST(request: Request) {
+  const body = await request.text()
+  const signature = headers().get('stripe-signature')!
+
+  let event: Stripe.Event
+
+  try {
+    event = stripe.webhooks.constructEvent(
+      body,
+      signature,
+      process.env.STRIPE_WEBHOOK_SECRET!
+    )
+  } catch (err) {
+    return NextResponse.json(
+      { error: 'Webhook signature verification failed' },
+      { status: 400 }
+    )
+  }
+
+  try {
+    switch (event.type) {
+      case 'payment_intent.succeeded':
+        await handlePaymentSuccess(event.data.object as Stripe.PaymentIntent)
+        break
+      case 'customer.subscription.created':
+        await handleSubscriptionCreated(event.data.object as Stripe.Subscription)
+        break
+      case 'customer.subscription.deleted':
+        await handleSubscriptionCanceled(event.data.object as Stripe.Subscription)
+        break
+    }
+
+    return NextResponse.json({ received: true })
+  } catch (error) {
+    return NextResponse.json(
+      { error: 'Webhook handler failed' },
+      { status: 500 }
+    )
+  }
+}
+
+async function handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
+  const { userId, credits, type } = paymentIntent.metadata
+
+  if (type === 'credit_purchase' && userId && credits) {
+    await addCredits(userId, parseInt(credits))
+  }
+}
+```
+
+## 账单管理
+
+### 获取账单历史
+
+```typescript title="app/api/billing/history/route.ts"
+export async function GET() {
+  const session = await auth()
+  if (!session) {
+    return NextResponse.json({ error: '未授权' }, { status: 401 })
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { stripeCustomerId: true }
+  })
+
+  if (!user?.stripeCustomerId) {
+    return NextResponse.json({ invoices: [] })
+  }
+
+  const invoices = await stripe.invoices.list({
+    customer: user.stripeCustomerId,
+    limit: 10,
+  })
+
+  return NextResponse.json({ invoices: invoices.data })
+}
+```
+
+### 账单组件
+
+```typescript title="components/billing/billing-history.tsx"
+'use client'
+
+import { useEffect, useState } from 'react'
+
+export function BillingHistory() {
+  const [invoices, setInvoices] = useState([])
+
+  useEffect(() => {
+    fetch('/api/billing/history')
+      .then(res => res.json())
+      .then(data => setInvoices(data.invoices))
+  }, [])
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-2xl font-bold">账单历史</h2>
+      {invoices.map((invoice: any) => (
+        <div key={invoice.id} className="border p-4 rounded-lg">
+          <div className="flex justify-between">
+            <span>#{invoice.number}</span>
+            <span>${(invoice.amount_paid / 100).toFixed(2)}</span>
+          </div>
+          <div className="text-sm text-gray-500">
+            {new Date(invoice.created * 1000).toLocaleDateString()}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+```
+
+## 退款处理
+
+### 创建退款
+
+```typescript title="app/api/stripe/refund/route.ts"
+export async function POST(request: Request) {
+  const { paymentIntentId, amount } = await request.json()
+
+  try {
+    const refund = await stripe.refunds.create({
+      payment_intent: paymentIntentId,
+      amount: amount ? amount * 100 : undefined, // 部分退款或全额退款
+    })
+
+    return NextResponse.json({ refund })
+  } catch (error) {
+    return NextResponse.json({ error: '退款失败' }, { status: 500 })
+  }
+}
+```
+
+<Callout type="warning">
+  确保在生产环境中使用真实的 Stripe 密钥，并正确配置 Webhook 端点。
+</Callout>
+
+## 最佳实践
+
+1. **安全性** - 永远不要在客户端暴露 Stripe 密钥
+2. **Webhook** - 使用 Webhook 处理支付状态更新
+3. **错误处理** - 优雅处理支付失败情况
+4. **测试** - 使用 Stripe 测试模式进行开发
+
+<Note>
+  查看 [Stripe 文档](https://stripe.com/docs) 了解更多支付功能。
+</Note>
